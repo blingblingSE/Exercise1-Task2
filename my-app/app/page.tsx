@@ -16,25 +16,22 @@ export default function Home() {
       <header className="bg-white border-b border-slate-200">
         <div className="max-w-2xl mx-auto px-4 sm:px-6 py-6">
           <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
-            Document Upload and File Management System
+            Document Upload and File Management
           </h1>
-          <p className="text-slate-600 text-sm mt-1">
-            Section 6 · Supabase Object Store · Section 7 · AI Summary
-          </p>
         </div>
       </header>
 
       <main className="max-w-2xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <section className="mb-8">
-          <h2 className="text-lg font-semibold text-slate-700 mb-4">
-            Upload Documents
+          <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">
+            Upload
           </h2>
           <FileUploader onUploadSuccess={handleUploadSuccess} />
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-slate-700 mb-4">
-            My Files
+          <h2 className="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">
+            Files
           </h2>
           <div className="bg-white rounded-xl border border-slate-200 p-4">
             <FileList key={refreshKey} />

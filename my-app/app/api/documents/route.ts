@@ -31,21 +31,31 @@ export async function GET() {
       }));
 
     // Section 8: enrich with DB data (skip if table not created yet)
-    let dbMap = new Map<string, { path: string; summary: string | null }>();
+    let dbMap = new Map<string, { path: string; summary: string | null; summary_file_path: string | null }>();
+    const summaryFilePaths = new Set<string>();
     if (storageFiles.length > 0) {
       const paths = storageFiles.map((f) => f.path);
       const { data: dbRows, error: dbErr } = await supabase
         .from('documents')
-        .select('path, summary')
+        .select('path, summary, summary_file_path')
         .in('path', paths);
       if (!dbErr && dbRows) {
         dbMap = new Map(dbRows.map((r) => [r.path, r]));
+        dbRows.forEach((r) => {
+          if (r.summary_file_path) summaryFilePaths.add(r.summary_file_path);
+        });
       }
     }
-    const files = storageFiles.map((f) => ({
-      ...f,
-      has_summary: !!dbMap.get(f.path)?.summary,
-    }));
+    const files = storageFiles.map((f) => {
+      const doc = dbMap.get(f.path);
+      const isAiSummary = summaryFilePaths.has(f.path);
+      return {
+        ...f,
+        has_summary: !!doc?.summary,
+        summary_file_path: doc?.summary_file_path ?? null,
+        is_ai_summary: isAiSummary,
+      };
+    });
 
     return NextResponse.json({ files });
   } catch (err) {

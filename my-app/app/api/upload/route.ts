@@ -14,8 +14,24 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createSupabaseAdmin();
+    const safeBaseName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+
+    // Reject if a file with the same name already exists
+    const { data: existingList } = await supabase.storage
+      .from(BUCKET_NAME)
+      .list('', { limit: 1000 });
+    const existingNames = (existingList ?? [])
+      .filter((item) => item.name && !item.name.startsWith('.'))
+      .map((item) => item.name.replace(/^\d+-/, ''));
+    if (existingNames.includes(safeBaseName)) {
+      return NextResponse.json(
+        { error: 'A file with this name has already been uploaded.' },
+        { status: 409 }
+      );
+    }
+
     const timestamp = Date.now();
-    const safeName = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    const safeName = `${timestamp}-${safeBaseName}`;
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 

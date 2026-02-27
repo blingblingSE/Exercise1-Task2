@@ -38,7 +38,8 @@ async function extractText(
 
 export async function POST(request: NextRequest) {
   try {
-    const { filePath } = (await request.json()) as { filePath?: string };
+    const body = (await request.json()) as { filePath?: string; language?: string };
+    const { filePath, language = 'en' } = body;
     if (!filePath) {
       return NextResponse.json(
         { error: 'filePath is required' },
@@ -48,15 +49,37 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseAdmin();
 
-    // Section 8: return cached summary from DB if available (skip if table not created yet)
-    const { data: cached, error: cacheErr } = await supabase
-      .from('documents')
-      .select('summary')
-      .eq('path', filePath)
-      .maybeSingle();
-    if (!cacheErr && cached?.summary?.trim()) {
-      return NextResponse.json({ summary: cached.summary, cached: true });
+    // Section 8: return cached summary only when the *last* summary was English.
+    // zh/yue should always regenerate or use their own latest run.
+    const useCache = language === 'en' || !language;
+    if (useCache) {
+      const { data: cached, error: cacheErr } = await supabase
+        .from('documents')
+        .select('summary, summary_history')
+        .eq('path', filePath)
+        .maybeSingle();
+
+      if (!cacheErr && cached?.summary?.trim()) {
+        const history =
+          ((cached as any).summary_history as Array<{
+            summary: string;
+            language: string;
+            created_at: string;
+          }>) ?? [];
+        const last = history[0];
+        // Only reuse cache if the latest summary was generated in English.
+        if (!last || last.language === 'English') {
+          return NextResponse.json({ summary: cached.summary, cached: true });
+        }
+      }
     }
+
+    const langInstruction =
+      language === 'zh'
+        ? 'You MUST provide the summary in Mandarin Chinese (普通话/中文). Use simplified Chinese characters only. Do NOT use English.'
+        : language === 'yue'
+          ? 'You MUST provide the summary in Cantonese (粤语/广东话). Use traditional Chinese characters and Cantonese vocabulary (e.g. 嘅、係、唔、咁、呢度). Do NOT use Mandarin or English.'
+          : 'Provide the summary in English.';
 
     const apiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
@@ -101,7 +124,7 @@ export async function POST(request: NextRequest) {
         model: 'gemini-1.5-flash',
         generationConfig: { maxOutputTokens: 1000 },
       });
-      const prompt = `You are a helpful assistant that summarizes documents concisely. Provide a clear, structured summary in English. Use plain text only—no markdown, no ** or other formatting symbols.
+      const prompt = `You are a helpful assistant that summarizes documents concisely. ${langInstruction} Use plain text only—no markdown, no ** or other formatting symbols.
 
 Document to summarize:
 
@@ -132,7 +155,7 @@ ${truncated}`;
           {
             role: 'system',
             content:
-              'You are a helpful assistant that summarizes documents concisely. Provide a clear, structured summary in English. Use plain text only—no markdown, no ** or other formatting symbols.',
+              `You are a helpful assistant that summarizes documents concisely. ${langInstruction} Use plain text only—no markdown, no ** or other formatting symbols.`,
           },
           {
             role: 'user',
@@ -145,17 +168,38 @@ ${truncated}`;
         completion.choices[0]?.message?.content?.trim() || 'No summary generated.';
     }
 
-    // Section 8: persist summary to Postgres
-    const { error: dbError } = await supabase.from('documents').upsert(
-      {
-        path: filePath,
-        name: filePath.split('/').pop() || filePath,
-        summary,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'path' }
-    );
+    // Section 8: persist summary + append to history (last 10)
+    const now = new Date().toISOString();
+    const langLabel = language === 'zh' ? '中文' : language === 'yue' ? '粤语' : 'English';
+    const { data: existing } = await supabase
+      .from('documents')
+      .select('summary_history')
+      .eq('path', filePath)
+      .maybeSingle();
+    const prevHistory = (existing?.summary_history as Array<{ summary: string; language: string; created_at: string }> | null) ?? [];
+    const newEntry = { summary, language: langLabel, created_at: now };
+    const summaryHistory = [newEntry, ...prevHistory].slice(0, 10);
+
+    const upsertData: Record<string, unknown> = {
+      path: filePath,
+      name: filePath.split('/').pop() || filePath,
+      updated_at: now,
+    };
+    // Only cache the latest English summary in the summary column.
+    if (language === 'en' || !language) {
+      (upsertData as any).summary = summary;
+    }
+
+    const { error: dbError } = await supabase.from('documents').upsert(upsertData, {
+      onConflict: 'path',
+    });
     if (dbError) console.warn('DB summary save warning:', dbError.message);
+
+    const { error: histErr } = await supabase
+      .from('documents')
+      .update({ summary_history: summaryHistory, updated_at: now })
+      .eq('path', filePath);
+    if (histErr) console.warn('DB summary_history update warning:', histErr.message);
 
     return NextResponse.json({ summary });
   } catch (err) {

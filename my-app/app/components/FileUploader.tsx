@@ -43,7 +43,7 @@ export default function FileUploader({ onUploadSuccess }: FileUploaderProps) {
   }
 
   return (
-    <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-emerald-500 transition-colors">
+    <div className="border border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-slate-400 transition-colors">
       <input
         ref={fileInputRef}
         type="file"
@@ -57,12 +57,11 @@ export default function FileUploader({ onUploadSuccess }: FileUploaderProps) {
         htmlFor="file-upload"
         className={`cursor-pointer block ${uploading ? 'opacity-60 pointer-events-none' : ''}`}
       >
-        <span className="text-4xl block mb-2">📄</span>
         <span className="text-slate-600 font-medium">
-          {uploading ? 'Uploading...' : 'Click or drag files here to upload'}
+          {uploading ? 'Uploading…' : 'Choose file or drag here'}
         </span>
         <span className="text-slate-400 text-sm block mt-1">
-          Supports PDF, DOC, TXT, MD, images, and more
+          PDF, DOC, TXT, MD
         </span>
       </label>
       {error && (
