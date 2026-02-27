@@ -1,0 +1,73 @@
+'use client';
+
+import { useState, useRef } from 'react';
+
+interface FileUploaderProps {
+  onUploadSuccess: () => void;
+}
+
+export default function FileUploader({ onUploadSuccess }: FileUploaderProps) {
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    setError(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Upload failed');
+      }
+
+      onUploadSuccess();
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-center hover:border-emerald-500 transition-colors">
+      <input
+        ref={fileInputRef}
+        type="file"
+        onChange={handleUpload}
+        disabled={uploading}
+        className="hidden"
+        id="file-upload"
+        accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg"
+      />
+      <label
+        htmlFor="file-upload"
+        className={`cursor-pointer block ${uploading ? 'opacity-60 pointer-events-none' : ''}`}
+      >
+        <span className="text-4xl block mb-2">📄</span>
+        <span className="text-slate-600 font-medium">
+          {uploading ? 'Uploading...' : 'Click or drag files here to upload'}
+        </span>
+        <span className="text-slate-400 text-sm block mt-1">
+          Supports PDF, DOC, TXT, MD, images, and more
+        </span>
+      </label>
+      {error && (
+        <p className="mt-3 text-red-600 text-sm">{error}</p>
+      )}
+    </div>
+  );
+}
