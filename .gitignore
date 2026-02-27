@@ -23,3 +23,6 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Section docs (do not upload)
+section8/*.md
