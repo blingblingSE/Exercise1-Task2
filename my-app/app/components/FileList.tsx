@@ -29,6 +29,7 @@ export default function FileList() {
   const [deleting, setDeleting] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'name' | 'date'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'ai' | 'original'>('all');
+  const [page, setPage] = useState(1);
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [summaryModal, setSummaryModal] = useState<{
     open: boolean;
@@ -61,7 +62,9 @@ export default function FileList() {
     fetchFiles();
   }, []);
 
-  async function handleDelete(path: string) {
+  async function handleDelete(path: string, displayName?: string) {
+    const name = displayName || path.replace(/^\d+-/, '');
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
     setDeleting(path);
     try {
       const res = await fetch(`/api/documents/${encodeURIComponent(path)}`, {
@@ -177,6 +180,15 @@ export default function FileList() {
     return (b.created_at || '').localeCompare(a.created_at || '');
   });
 
+  const PAGE_SIZE = 5;
+  const totalPages = Math.max(1, Math.ceil(sortedFiles.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedFiles = sortedFiles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(1);
+  }, [filterBy, sortBy]);
+
   if (loading) {
     return (
       <div className="text-slate-500 py-8 text-center">Loading...</div>
@@ -259,91 +271,129 @@ export default function FileList() {
           </select>
           <button
             onClick={fetchFiles}
-            className="text-sm text-slate-500 hover:text-slate-700"
+            className="text-sm text-slate-500 hover:text-slate-700 inline-flex items-center gap-1"
+            title="Refresh"
           >
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M23 4v6h-6M1 20v-6h6" />
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+            </svg>
             Refresh
           </button>
         </div>
       </div>
       <ul className="divide-y divide-slate-200">
-        {sortedFiles.map((file) => {
+        {paginatedFiles.map((file) => {
           const displayName = file.name.replace(/^\d+-/, '');
           const isDeleting = deleting === file.path;
           const url = getPublicUrl(file.path);
           return (
             <li
               key={file.path}
-              className="flex items-center justify-between py-3 px-2 hover:bg-slate-50 rounded group"
+              className="flex flex-col py-3 px-2 hover:bg-slate-50 rounded group"
             >
-              <div className="flex items-center gap-3 min-w-0 flex-1">
-                <div className="min-w-0 flex-1 relative group/name">
-                  <a
-                    href={url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-slate-800 hover:text-slate-600 truncate block font-medium"
-                    title={displayName}
-                  >
-                    {displayName}
-                  </a>
-                  <div
-                    className="invisible group-hover/name:visible absolute left-0 bottom-full mb-1 px-2 py-1.5 text-xs font-normal text-slate-200 bg-slate-800 rounded shadow-lg z-10 break-words"
-                    style={{ width: 'max-content', maxWidth: 'min(320px, 90vw)' }}
-                  >
-                    {displayName}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap items-center">
-                    {file.is_ai_summary && (
-                      <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] uppercase tracking-wide">
-                        AI generate
-                      </span>
-                    )}
-                    {file.created_at && (
-                      <span>{new Date(file.created_at).toLocaleString()}</span>
-                    )}
-                    {file.size != null && (
-                      <span>{formatSize(file.size)}</span>
-                    )}
-                    {file.summary_file_path && file.path !== file.summary_file_path && (
-                      <button
-                        type="button"
-                        onClick={() => handleDownloadSummaryFile(file.summary_file_path!)}
-                        className="text-slate-500 hover:text-slate-700 hover:underline cursor-pointer"
-                      >
-                        Download summary
-                      </button>
-                    )}
-                  </div>
+              <div className="min-w-0 flex-1">
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-slate-800 hover:text-slate-600 truncate block font-medium text-sm"
+                  title={displayName}
+                >
+                  {displayName}
+                </a>
+                <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap">
+                  {file.is_ai_summary && (
+                    <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] uppercase tracking-wide">
+                      AI generate
+                    </span>
+                  )}
+                  {file.created_at && (
+                    <span>{new Date(file.created_at).toLocaleString()}</span>
+                  )}
+                  {file.size != null && (
+                    <span>{formatSize(file.size)}</span>
+                  )}
+                  {file.summary_file_path && file.path !== file.summary_file_path && (
+                    <button
+                      type="button"
+                      onClick={() => handleDownloadSummaryFile(file.summary_file_path!)}
+                      className="text-slate-500 hover:text-slate-700 hover:underline cursor-pointer inline-flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                        <polyline points="7 10 12 15 17 10" />
+                        <line x1="12" y1="15" x2="12" y2="3" />
+                      </svg>
+                      Download summary
+                    </button>
+                  )}
                 </div>
               </div>
-              <div className="flex flex-wrap items-center gap-1 sm:gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-1 sm:gap-1.5 mt-2 shrink-0">
                 <button
                   onClick={() => handleSummarize(file.path, displayName)}
-                  className="bg-slate-800 hover:bg-slate-700 text-white text-sm font-medium px-3 py-1.5 rounded border border-slate-700"
-                  title="Summarize"
+                  className="bg-slate-800 hover:bg-slate-700 text-white text-xs font-medium px-2 py-1 rounded border border-slate-700 inline-flex items-center gap-1"
+                  title="AI summary"
                 >
-                  Summarize
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+                  </svg>
+                  AI summary
                 </button>
                 <button
                   onClick={() => handleDownload(file.path, displayName)}
-                  className="text-slate-600 hover:text-slate-800 text-sm px-2 py-1 rounded border border-slate-200 hover:border-slate-300"
-                  title="Download"
+                  className="text-slate-600 hover:text-slate-800 text-xs px-2 py-1 rounded border border-slate-200 hover:border-slate-300 inline-flex items-center gap-1"
+                  title="Review"
                 >
-                  Download
+                  <span className="inline-flex items-center gap-1">
+                    <svg
+                      className="w-3 h-3 text-slate-600"
+                      viewBox="0 0 1024 1024"
+                      aria-hidden="true"
+                    >
+                      <path
+                        fill="currentColor"
+                        d="M512 224C281.6 224 128 384 96 512c32 128 185.6 288 416 288s384-160 416-288c-32-128-185.6-288-416-288zm0 448a160 160 0 1 1 0-320 160 160 0 0 1 0 320zm0-256a96 96 0 1 0 0 192 96 96 0 0 0 0-192z"
+                      />
+                    </svg>
+                    <span>Review</span>
+                  </span>
                 </button>
                 <button
                   onClick={() => handleCopyLink(file.path)}
-                  className="text-slate-600 hover:text-slate-800 text-sm px-2 py-1 rounded border border-slate-200 hover:border-slate-300"
+                  className="text-slate-600 hover:text-slate-800 text-xs px-2 py-1 rounded border border-slate-200 hover:border-slate-300 inline-flex items-center gap-1"
                   title="Copy link"
                 >
-                  {copiedPath === file.path ? 'Copied' : 'Link'}
+                  {copiedPath === file.path ? (
+                    <>
+                      <svg className="w-3 h-3 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                      Link
+                    </>
+                  )}
                 </button>
                 <button
-                  onClick={() => handleDelete(file.path)}
+                  onClick={() => handleDelete(file.path, displayName)}
                   disabled={isDeleting}
-                  className="text-slate-600 hover:text-red-700 text-sm px-2 py-1 rounded border border-slate-200 hover:border-red-200 disabled:opacity-50"
+                  className="text-slate-600 hover:text-red-700 text-xs px-2 py-1 rounded border border-slate-200 hover:border-red-200 disabled:opacity-50 inline-flex items-center gap-1"
                   title="Delete"
                 >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                    <line x1="10" y1="11" x2="10" y2="17" />
+                    <line x1="14" y1="11" x2="14" y2="17" />
+                  </svg>
                   {isDeleting ? '…' : 'Delete'}
                 </button>
               </div>
@@ -351,6 +401,37 @@ export default function FileList() {
           );
         })}
       </ul>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 pt-3 border-t border-slate-200">
+          <span className="text-sm text-slate-500">
+            Page {safePage} of {totalPages}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={safePage <= 1}
+              className="text-sm text-slate-600 hover:text-slate-800 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded border border-slate-200 inline-flex items-center gap-1"
+            >
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+              Previous
+            </button>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={safePage >= totalPages}
+              className="text-sm text-slate-600 hover:text-slate-800 disabled:opacity-40 disabled:cursor-not-allowed px-2 py-1 rounded border border-slate-200 inline-flex items-center gap-1"
+            >
+              Next
+              <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
