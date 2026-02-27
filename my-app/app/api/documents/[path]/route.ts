@@ -30,6 +30,9 @@ export async function DELETE(
       );
     }
 
+    // Section 8: remove from Postgres
+    await supabase.from('documents').delete().eq('path', decodedPath);
+
     return NextResponse.json({ success: true });
   } catch (err) {
     console.error('Delete error:', err);

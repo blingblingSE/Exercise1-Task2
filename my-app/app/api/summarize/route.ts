@@ -46,6 +46,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const supabase = createSupabaseAdmin();
+
+    // Section 8: return cached summary from DB if available (skip if table not created yet)
+    const { data: cached, error: cacheErr } = await supabase
+      .from('documents')
+      .select('summary')
+      .eq('path', filePath)
+      .maybeSingle();
+    if (!cacheErr && cached?.summary?.trim()) {
+      return NextResponse.json({ summary: cached.summary, cached: true });
+    }
+
     const apiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
     if (!apiKey && !geminiKey) {
@@ -55,7 +67,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const supabase = createSupabaseAdmin();
     const { data, error } = await supabase.storage
       .from(BUCKET_NAME)
       .download(filePath);
@@ -133,6 +144,18 @@ ${truncated}`;
       summary =
         completion.choices[0]?.message?.content?.trim() || 'No summary generated.';
     }
+
+    // Section 8: persist summary to Postgres
+    const { error: dbError } = await supabase.from('documents').upsert(
+      {
+        path: filePath,
+        name: filePath.split('/').pop() || filePath,
+        summary,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'path' }
+    );
+    if (dbError) console.warn('DB summary save warning:', dbError.message);
 
     return NextResponse.json({ summary });
   } catch (err) {

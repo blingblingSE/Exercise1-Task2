@@ -20,7 +20,7 @@ export async function GET() {
       );
     }
 
-    const files = (data ?? [])
+    const storageFiles = (data ?? [])
       .filter((item) => item.name && !item.name.startsWith('.'))
       .map((item) => ({
         name: item.name,
@@ -29,6 +29,23 @@ export async function GET() {
         metadata: item.metadata,
         size: item.metadata?.size ?? null,
       }));
+
+    // Section 8: enrich with DB data (skip if table not created yet)
+    let dbMap = new Map<string, { path: string; summary: string | null }>();
+    if (storageFiles.length > 0) {
+      const paths = storageFiles.map((f) => f.path);
+      const { data: dbRows, error: dbErr } = await supabase
+        .from('documents')
+        .select('path, summary')
+        .in('path', paths);
+      if (!dbErr && dbRows) {
+        dbMap = new Map(dbRows.map((r) => [r.path, r]));
+      }
+    }
+    const files = storageFiles.map((f) => ({
+      ...f,
+      has_summary: !!dbMap.get(f.path)?.summary,
+    }));
 
     return NextResponse.json({ files });
   } catch (err) {

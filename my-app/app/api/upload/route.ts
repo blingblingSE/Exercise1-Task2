@@ -34,6 +34,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Section 8: persist document metadata to Postgres
+    const { error: dbError } = await supabase.from('documents').upsert(
+      {
+        path: data.path,
+        name: file.name,
+        size: file.size,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'path' }
+    );
+    if (dbError) console.warn('DB insert warning:', dbError.message);
+
     const { data: urlData } = supabase.storage
       .from(BUCKET_NAME)
       .getPublicUrl(data.path);
