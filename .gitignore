@@ -26,3 +26,4 @@ yarn-error.log*
 
 # Section docs (do not upload)
 section8/*.md
+DEPLOYMENT_CHECKLIST.md
