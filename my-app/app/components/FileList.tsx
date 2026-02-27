@@ -295,7 +295,7 @@ export default function FileList() {
                   <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap items-center">
                     {file.is_ai_summary && (
                       <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] uppercase tracking-wide">
-                        AI
+                        AI generate
                       </span>
                     )}
                     {file.created_at && (
