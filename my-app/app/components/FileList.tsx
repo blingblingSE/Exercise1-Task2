@@ -30,7 +30,14 @@ export default function FileList() {
   const [sortBy, setSortBy] = useState<'name' | 'date'>('date');
   const [filterBy, setFilterBy] = useState<'all' | 'ai' | 'original'>('all');
   const [page, setPage] = useState(1);
+  const [searchQuery, setSearchQuery] = useState('');
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
+  const [reviewModal, setReviewModal] = useState<{
+    open: boolean;
+    title: string;
+    content: string | null;
+    loading: boolean;
+  }>({ open: false, title: '', content: null, loading: false });
   const [summaryModal, setSummaryModal] = useState<{
     open: boolean;
     title: string;
@@ -106,6 +113,40 @@ export default function FileList() {
     document.body.removeChild(a);
   }
 
+  const isAiSummaryFile = (file: FileItem) =>
+    !!file.is_ai_summary || /^\d+-summary_/.test(file.path);
+
+  async function handleReview(file: FileItem, displayName: string) {
+    if (isAiSummaryFile(file)) {
+      setReviewModal({ open: true, title: displayName, content: null, loading: true });
+      try {
+        const res = await fetch(
+          `/api/documents/download-summary?path=${encodeURIComponent(file.path)}`
+        );
+        const text = await res.text();
+        if (!res.ok) {
+          let msg = text || 'Failed to load';
+          try {
+            const j = JSON.parse(text);
+            if (j?.error) msg = j.error;
+          } catch {
+            /* use msg as-is */
+          }
+          throw new Error(msg);
+        }
+        setReviewModal((prev) => ({ ...prev, content: text, loading: false }));
+      } catch (e) {
+        setReviewModal((prev) => ({
+          ...prev,
+          content: e instanceof Error ? e.message : 'Failed to load content.',
+          loading: false,
+        }));
+      }
+    } else {
+      handleDownload(file.path, displayName);
+    }
+  }
+
   function handleDownloadSummaryFile(summaryFilePath: string) {
     const url = `/api/documents/download-summary?path=${encodeURIComponent(summaryFilePath)}`;
     const filename = summaryFilePath.replace(/^.*\//, '').replace(/^\d+-/, '') || 'summary.txt';
@@ -173,7 +214,14 @@ export default function FileList() {
     return true;
   });
 
-  const sortedFiles = [...filteredFiles].sort((a, b) => {
+  const searchLower = searchQuery.trim().toLowerCase();
+  const filteredBySearch = searchLower
+    ? filteredFiles.filter((f) =>
+        f.name.replace(/^\d+-/, '').toLowerCase().includes(searchLower)
+      )
+    : filteredFiles;
+
+  const sortedFiles = [...filteredBySearch].sort((a, b) => {
     if (sortBy === 'name') {
       return a.name.localeCompare(b.name);
     }
@@ -187,7 +235,7 @@ export default function FileList() {
 
   useEffect(() => {
     setPage(1);
-  }, [filterBy, sortBy]);
+  }, [filterBy, sortBy, searchQuery]);
 
   if (loading) {
     return (
@@ -238,9 +286,50 @@ export default function FileList() {
             : undefined
         }
       />
+      {reviewModal.open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+          onClick={() => setReviewModal({ open: false, title: '', content: null, loading: false })}
+        >
+          <div
+            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
+              <h3 className="font-medium text-slate-800 truncate pr-2">{reviewModal.title}</h3>
+              <button
+                type="button"
+                onClick={() => setReviewModal({ open: false, title: '', content: null, loading: false })}
+                className="text-slate-500 hover:text-slate-700 text-2xl leading-none p-2 -m-2"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              {reviewModal.loading ? (
+                <div className="text-slate-500 text-sm">Loading...</div>
+              ) : reviewModal.content !== null ? (
+                <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
+                  {reviewModal.content}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      )}
+      <div className="mb-3">
+        <input
+          type="text"
+          placeholder="Search by file name..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 placeholder:text-slate-400"
+        />
+      </div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-4">
         <span className="text-sm text-slate-500">
-          {filteredFiles.length} file(s){' '}
+          {filteredBySearch.length} file(s){' '}
           {filterBy !== 'all' && (
             <span className="text-slate-400">
               ({filterBy === 'ai' ? 'AI only' : 'Non-AI'})
@@ -303,7 +392,7 @@ export default function FileList() {
                   {displayName}
                 </a>
                 <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap">
-                  {file.is_ai_summary && (
+                  {(file.is_ai_summary || /^\d+-summary_/.test(file.path)) && (
                     <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] uppercase tracking-wide">
                       AI generate
                     </span>
@@ -343,7 +432,7 @@ export default function FileList() {
                   AI summary
                 </button>
                 <button
-                  onClick={() => handleDownload(file.path, displayName)}
+                  onClick={() => handleReview(file, displayName)}
                   className="text-slate-600 hover:text-slate-800 text-xs px-2 py-1 rounded border border-slate-200 hover:border-slate-300 inline-flex items-center gap-1"
                   title="Review"
                 >

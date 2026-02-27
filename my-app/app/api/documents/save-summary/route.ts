@@ -52,6 +52,20 @@ export async function POST(request: NextRequest) {
       summaryFileName = `${timestamp}-summary_${safeBase}.txt`;
     }
 
+    const newDisplayName = summaryFileName.replace(/^\d+-/, '');
+    const { data: existingList } = await supabase.storage
+      .from(BUCKET_NAME)
+      .list('', { limit: 1000 });
+    const existingDisplayNames = new Set(
+      (existingList ?? []).filter((f) => f.name && !f.name.startsWith('.')).map((f) => f.name.replace(/^\d+-/, ''))
+    );
+    if (existingDisplayNames.has(newDisplayName)) {
+      return NextResponse.json(
+        { error: 'A file with this name already exists in the list. Please choose a different name.' },
+        { status: 409 }
+      );
+    }
+
     const utf8Bom = Buffer.from([0xef, 0xbb, 0xbf]);
     const textBuffer = Buffer.from(summaryText, 'utf-8');
     const buffer = Buffer.concat([utf8Bom, textBuffer]);
