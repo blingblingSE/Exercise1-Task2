@@ -38,8 +38,9 @@ async function extractText(
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as { filePath?: string; language?: string };
-    const { filePath, language = 'en' } = body;
+    const body = (await request.json()) as { filePath?: string; language?: string; model?: string };
+    const { filePath, language = 'en', model: modelChoice } = body;
+    const useGithubGpt41 = modelChoice === 'gpt4.1';
     if (!filePath) {
       return NextResponse.json(
         { error: 'filePath is required' },
@@ -81,11 +82,22 @@ export async function POST(request: NextRequest) {
           ? 'You MUST provide the summary in Cantonese (粤语/广东话). Use traditional Chinese characters and Cantonese vocabulary (e.g. 嘅、係、唔、咁、呢度). Do NOT use Mandarin or English.'
           : 'Provide the summary in English.';
 
+    const formatInstruction =
+      'Format the summary in **Markdown**: use ## for main sections, ### for subsections, **bold** for key terms, and use list or indentation where helpful. Keep it well-structured and readable.';
+
     const apiKey = process.env.OPENAI_API_KEY;
     const geminiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey && !geminiKey) {
+    const githubToken = process.env.GITHUB_TOKEN;
+    if (useGithubGpt41) {
+      if (!githubToken) {
+        return NextResponse.json(
+          { error: 'GITHUB_TOKEN is required for GPT-4.1. Add it in .env.local' },
+          { status: 500 }
+        );
+      }
+    } else if (!apiKey && !geminiKey) {
       return NextResponse.json(
-        { error: 'Add GEMINI_API_KEY or OPENAI_API_KEY in .env.local' },
+        { error: 'Add GEMINI_API_KEY or OPENAI_API_KEY in .env.local for DeepSeek' },
         { status: 500 }
       );
     }
@@ -118,13 +130,38 @@ export async function POST(request: NextRequest) {
 
     let summary: string;
 
-    if (geminiKey) {
+    if (useGithubGpt41 && githubToken) {
+      const githubClient = new OpenAI({
+        baseURL: 'https://models.github.ai/inference',
+        apiKey: githubToken,
+        timeout: 120_000,
+      });
+      const completion = await githubClient.chat.completions.create({
+        model: 'openai/gpt-4.1',
+        messages: [
+          {
+            role: 'system',
+            content:
+              `You are a helpful assistant that summarizes documents clearly and in a structured way. ${langInstruction} ${formatInstruction}`,
+          },
+          {
+            role: 'user',
+            content: `Summarize the following document:\n\n${truncated}`,
+          },
+        ],
+        temperature: 1.0,
+        top_p: 1.0,
+        max_tokens: 1500,
+      });
+      summary =
+        completion.choices[0]?.message?.content?.trim() || 'No summary generated.';
+    } else if (geminiKey && modelChoice !== 'deepseek') {
       const genAI = new GoogleGenerativeAI(geminiKey);
       const model = genAI.getGenerativeModel({
         model: 'gemini-1.5-flash',
-        generationConfig: { maxOutputTokens: 1000 },
+        generationConfig: { maxOutputTokens: 1500 },
       });
-      const prompt = `You are a helpful assistant that summarizes documents concisely. ${langInstruction} Use plain text only—no markdown, no ** or other formatting symbols.
+      const prompt = `You are a helpful assistant that summarizes documents clearly and in a structured way. ${langInstruction} ${formatInstruction}
 
 Document to summarize:
 
@@ -142,6 +179,12 @@ ${truncated}`;
       }
     } else {
       const baseURL = process.env.OPENAI_BASE_URL;
+      if (!apiKey) {
+        return NextResponse.json(
+          { error: 'OPENAI_API_KEY is required for DeepSeek. Set it in .env.local with OPENAI_BASE_URL=https://api.deepseek.com/v1' },
+          { status: 500 }
+        );
+      }
       const openai = new OpenAI({
         apiKey,
         ...(baseURL && { baseURL }),
@@ -155,14 +198,14 @@ ${truncated}`;
           {
             role: 'system',
             content:
-              `You are a helpful assistant that summarizes documents concisely. ${langInstruction} Use plain text only—no markdown, no ** or other formatting symbols.`,
+              `You are a helpful assistant that summarizes documents clearly and in a structured way. ${langInstruction} ${formatInstruction}`,
           },
           {
             role: 'user',
             content: `Summarize the following document:\n\n${truncated}`,
           },
         ],
-        max_tokens: 1000,
+        max_tokens: 1500,
       });
       summary =
         completion.choices[0]?.message?.content?.trim() || 'No summary generated.';

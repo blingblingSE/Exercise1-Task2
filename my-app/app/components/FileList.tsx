@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import SummaryModal, { type SummaryLanguage } from './SummaryModal';
 
 interface FileItem {
   name: string;
@@ -15,6 +14,11 @@ interface FileItem {
 
 const SUMMARIZABLE_EXT = ['.txt', '.md', '.pdf', '.doc', '.docx'];
 
+export interface FileListProps {
+  onSelectForSummary?: (path: string, displayName: string, notSupported?: boolean) => void;
+  onOpenReview?: (path: string, displayName: string, isAiSummary: boolean) => void;
+}
+
 function formatSize(bytes: number | null | undefined): string {
   if (bytes == null || bytes === 0) return '—';
   if (bytes < 1024) return `${bytes} B`;
@@ -22,7 +26,7 @@ function formatSize(bytes: number | null | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-export default function FileList() {
+export default function FileList({ onSelectForSummary, onOpenReview }: FileListProps = {}) {
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,20 +36,7 @@ export default function FileList() {
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
-  const [reviewModal, setReviewModal] = useState<{
-    open: boolean;
-    title: string;
-    content: string | null;
-    loading: boolean;
-  }>({ open: false, title: '', content: null, loading: false });
-  const [summaryModal, setSummaryModal] = useState<{
-    open: boolean;
-    title: string;
-    path: string | null;
-  }>({ open: false, title: '', path: null });
-  const [summary, setSummary] = useState<string | null>(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
-  const [summaryError, setSummaryError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ path: string; displayName: string } | null>(null);
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const bucketName = 'Documents';
@@ -69,9 +60,14 @@ export default function FileList() {
     fetchFiles();
   }, []);
 
-  async function handleDelete(path: string, displayName?: string) {
-    const name = displayName || path.replace(/^\d+-/, '');
-    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  function openDeleteConfirm(path: string, displayName: string) {
+    setDeleteConfirm({ path, displayName });
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+    const { path } = deleteConfirm;
+    setDeleteConfirm(null);
     setDeleting(path);
     try {
       const res = await fetch(`/api/documents/${encodeURIComponent(path)}`, {
@@ -113,38 +109,8 @@ export default function FileList() {
     document.body.removeChild(a);
   }
 
-  const isAiSummaryFile = (file: FileItem) =>
-    !!file.is_ai_summary || /^\d+-summary_/.test(file.path);
-
-  async function handleReview(file: FileItem, displayName: string) {
-    if (isAiSummaryFile(file)) {
-      setReviewModal({ open: true, title: displayName, content: null, loading: true });
-      try {
-        const res = await fetch(
-          `/api/documents/download-summary?path=${encodeURIComponent(file.path)}`
-        );
-        const text = await res.text();
-        if (!res.ok) {
-          let msg = text || 'Failed to load';
-          try {
-            const j = JSON.parse(text);
-            if (j?.error) msg = j.error;
-          } catch {
-            /* use msg as-is */
-          }
-          throw new Error(msg);
-        }
-        setReviewModal((prev) => ({ ...prev, content: text, loading: false }));
-      } catch (e) {
-        setReviewModal((prev) => ({
-          ...prev,
-          content: e instanceof Error ? e.message : 'Failed to load content.',
-          loading: false,
-        }));
-      }
-    } else {
-      handleDownload(file.path, displayName);
-    }
+  function handleReview(file: FileItem, displayName: string) {
+    onOpenReview?.(file.path, displayName, isAiSummaryFile(file));
   }
 
   function handleDownloadSummaryFile(summaryFilePath: string) {
@@ -160,57 +126,17 @@ export default function FileList() {
 
   function handleSummarize(path: string, displayName: string) {
     const ext = path.includes('.') ? path.slice(path.lastIndexOf('.')).toLowerCase() : '';
-    setSummaryModal({ open: true, title: displayName, path });
-    setSummary(null);
-    setSummaryError(null);
-    setSummaryLoading(false);
-    if (!SUMMARIZABLE_EXT.includes(ext)) {
-      setSummaryError(`Summary not supported for ${ext || 'this file type'}. Use .txt, .md, .pdf, .doc, .docx`);
-      return;
-    }
+    const notSupported = !SUMMARIZABLE_EXT.includes(ext);
+    onSelectForSummary?.(path, displayName, notSupported);
   }
 
-  async function handleGenerateSummary(path: string, language: SummaryLanguage) {
-    setSummaryLoading(true);
-    setSummaryError(null);
-    try {
-      const ctrl = new AbortController();
-      const timeout = setTimeout(() => ctrl.abort(), 60000);
-      const res = await fetch('/api/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filePath: path, language }),
-        signal: ctrl.signal,
-      });
-      clearTimeout(timeout);
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Summarize failed');
-      setSummary(data.summary);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Failed to generate summary';
-      setSummaryError(
-        msg.includes('abort') ? 'Request timed out (60s). Try a shorter document or check network.' : msg
-      );
-    } finally {
-      setSummaryLoading(false);
-    }
-  }
-
-  async function handleSaveSummaryAsFile(filePath: string, fileName?: string, summaryText?: string): Promise<string | undefined> {
-    const res = await fetch('/api/documents/save-summary', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath, fileName: fileName || undefined, summary: summaryText || undefined }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed to save');
-    await fetchFiles();
-    return data.summaryFilePath as string | undefined;
-  }
+  const isAiSummaryFile = (file: FileItem) =>
+    !!file.is_ai_summary || /^\d+-summary_/.test(file.path);
 
   const filteredFiles = files.filter((f) => {
-    if (filterBy === 'ai') return !!f.is_ai_summary;
-    if (filterBy === 'original') return !f.is_ai_summary;
+    const isAi = isAiSummaryFile(f);
+    if (filterBy === 'ai') return isAi;
+    if (filterBy === 'original') return !isAi;
     return true;
   });
 
@@ -228,7 +154,7 @@ export default function FileList() {
     return (b.created_at || '').localeCompare(a.created_at || '');
   });
 
-  const PAGE_SIZE = 5;
+  const PAGE_SIZE = 4;
   const totalPages = Math.max(1, Math.ceil(sortedFiles.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paginatedFiles = sortedFiles.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
@@ -267,53 +193,34 @@ export default function FileList() {
 
   return (
     <div>
-      <SummaryModal
-        isOpen={summaryModal.open}
-        onClose={() => setSummaryModal({ open: false, title: '', path: null })}
-        title={summaryModal.title}
-        summary={summary}
-        loading={summaryLoading}
-        error={summaryError}
-        filePath={summaryModal.path}
-        onGenerate={
-          summaryModal.path
-            ? (lang) => handleGenerateSummary(summaryModal.path!, lang)
-            : undefined
-        }
-        onSaveAsFile={
-          summaryModal.path
-            ? (path, fileName, summaryText) => handleSaveSummaryAsFile(path, fileName, summaryText)
-            : undefined
-        }
-      />
-      {reviewModal.open && (
+      {deleteConfirm && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-          onClick={() => setReviewModal({ open: false, title: '', content: null, loading: false })}
+          onClick={() => setDeleteConfirm(null)}
         >
           <div
-            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[80vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-xl border border-slate-200 shadow-xl max-w-sm w-full p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-4 border-b border-slate-200 flex-shrink-0">
-              <h3 className="font-medium text-slate-800 truncate pr-2">{reviewModal.title}</h3>
+            <p className="text-slate-800 font-medium mb-1">Delete file?</p>
+            <p className="text-slate-600 text-sm mb-4 truncate" title={deleteConfirm.displayName}>
+              &quot;{deleteConfirm.displayName}&quot; — This cannot be undone.
+            </p>
+            <div className="flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => setReviewModal({ open: false, title: '', content: null, loading: false })}
-                className="text-slate-500 hover:text-slate-700 text-2xl leading-none p-2 -m-2"
-                aria-label="Close"
+                onClick={() => setDeleteConfirm(null)}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:text-slate-800 rounded-lg border border-slate-200 hover:border-slate-300"
               >
-                ×
+                Cancel
               </button>
-            </div>
-            <div className="p-4 overflow-y-auto flex-1">
-              {reviewModal.loading ? (
-                <div className="text-slate-500 text-sm">Loading...</div>
-              ) : reviewModal.content !== null ? (
-                <div className="text-slate-700 whitespace-pre-wrap text-sm leading-relaxed">
-                  {reviewModal.content}
-                </div>
-              ) : null}
+              <button
+                type="button"
+                onClick={confirmDelete}
+                className="px-3 py-1.5 text-sm text-white bg-red-600 hover:bg-red-700 rounded-lg border border-red-700"
+              >
+                Delete
+              </button>
             </div>
           </div>
         </div>
@@ -392,7 +299,7 @@ export default function FileList() {
                   {displayName}
                 </a>
                 <div className="flex items-center gap-3 text-xs text-slate-400 mt-0.5 flex-wrap">
-                  {(file.is_ai_summary || /^\d+-summary_/.test(file.path)) && (
+                  {isAiSummaryFile(file) && (
                     <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-100 text-[10px] uppercase tracking-wide">
                       AI generate
                     </span>
@@ -473,7 +380,7 @@ export default function FileList() {
                   )}
                 </button>
                 <button
-                  onClick={() => handleDelete(file.path, displayName)}
+                  onClick={() => openDeleteConfirm(file.path, displayName)}
                   disabled={isDeleting}
                   className="text-slate-600 hover:text-red-700 text-xs px-2 py-1 rounded border border-slate-200 hover:border-red-200 disabled:opacity-50 inline-flex items-center gap-1"
                   title="Delete"

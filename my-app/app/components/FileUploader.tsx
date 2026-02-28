@@ -43,7 +43,10 @@ export default function FileUploader({ onUploadSuccess }: FileUploaderProps) {
   }
 
   return (
-    <div className="border border-dashed border-slate-300 rounded-lg p-6 text-center hover:border-slate-400 transition-colors">
+    <label
+      htmlFor="file-upload"
+      className={`block border border-dashed border-slate-300 rounded-lg px-3 py-2.5 flex flex-wrap items-center gap-2 hover:border-slate-400 transition-colors ${uploading ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -53,20 +56,13 @@ export default function FileUploader({ onUploadSuccess }: FileUploaderProps) {
         id="file-upload"
         accept=".pdf,.doc,.docx,.txt,.md,.png,.jpg,.jpeg"
       />
-      <label
-        htmlFor="file-upload"
-        className={`cursor-pointer block ${uploading ? 'opacity-60 pointer-events-none' : ''}`}
-      >
-        <span className="text-slate-600 font-medium">
-          {uploading ? 'Uploading…' : 'Choose file or drag here'}
-        </span>
-        <span className="text-slate-400 text-sm block mt-1">
-          PDF, DOC, TXT, MD
-        </span>
-      </label>
+      <span className={`text-sm ${uploading ? 'text-slate-500' : 'text-slate-600 font-medium'}`}>
+        {uploading ? 'Uploading…' : 'Choose file'}
+      </span>
+      <span className="text-slate-400 text-xs">PDF, DOC, TXT, MD</span>
       {error && (
-        <p className="mt-3 text-red-600 text-sm">{error}</p>
+        <span className="text-red-600 text-xs">{error}</span>
       )}
-    </div>
+    </label>
   );
 }
